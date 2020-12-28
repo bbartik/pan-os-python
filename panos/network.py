@@ -81,6 +81,8 @@ def interface(name, *args, **kwargs):
         return LoopbackInterface(name, *args, **kwargs)
     elif name.startswith("tunnel"):
         return TunnelInterface(name, *args, **kwargs)
+    elif name.startswith("sdwan"):
+        return SdwanInterface(name, *args, **kwargs)
     else:
         raise err.PanDeviceError("Can't identify interface type from name: %s" % name)
 
@@ -211,6 +213,41 @@ class Vlan(VsysOperations):
             VersionedParamPath("virtual_interface", path="/virtual-interface/interface")
         )
 
+        self._params = tuple(params)
+
+
+class IPv4Address(VersionedPanObject):
+    """IPv4 Address
+
+    Can be added to any :class:`panos.network.Interface` subclass
+    that supports IPv4.
+
+    Args:
+        sdwan_gateway (str): sdwan gateway address
+
+    """
+
+    SUFFIX = ENTRY
+    NAME = "ip"
+
+    def _setup(self):
+        # xpaths
+        # Non-mode interface xpaths
+        self._xpaths.add_profile(value="/layer3/ip")
+        # Mode interface xpaths (mode: layer3)
+        self._xpaths.add_profile(
+            value="/layer3/ip",
+            parents=("EthernetInterface", "AggregateInterface", "Layer3Subinterface"),
+        )
+
+        # params
+        params = []
+
+        params.append(VersionedParamPath("sdwan_gateway", exclude=True))
+        params[-1].add_profile(
+            "9.1.0",
+            path="sdwan-gateway",
+        )
         self._params = tuple(params)
 
 
@@ -605,8 +642,8 @@ class Arp(VersionedPanObject):
         params.append(VersionedParamPath("interface", path="interface"))
 
         self._params = tuple(params)
-
-
+      
+      
 class VirtualWire(VsysOperations):
     """Virtual wires (vwire)
 
@@ -1088,6 +1125,7 @@ class EthernetInterface(PhysicalInterface):
     CHILDTYPES = (
         "network.Layer3Subinterface",
         "network.Layer2Subinterface",
+        "network.IPv4Address",
         "network.IPv6Address",
         "network.Arp",
     )
@@ -1280,7 +1318,20 @@ class EthernetInterface(PhysicalInterface):
             condition={"mode": "layer3"},
             path="{mode}/dhcp-client/send-hostname/hostname",
         )
-
+        params.append(VersionedParamPath("sdwan_link_settings_enable", exclude=True))
+        params[-1].add_profile(
+            "9.1.0",
+            vartype="yesno",
+            condition={"mode": "layer3"},
+            path="{mode}/sdwan-link-settings/enable",
+        )
+        params.append(VersionedParamPath("sdwan_interface_profile", exclude=True))
+        params[-1].add_profile(
+            "9.1.0",
+            condition={"mode": "layer3"},
+            path="{mode}/sdwan-link-settings/sdwan-interface-profile",
+        )
+        
         self._params = tuple(params)
 
 
@@ -1725,6 +1776,37 @@ class TunnelInterface(Interface):
         params.append(VersionedParamPath("mtu", path="mtu", vartype="int"))
         params.append(VersionedParamPath("netflow_profile", path="netflow-profile"))
         params.append(VersionedParamPath("comment", path="comment"))
+
+        self._params = tuple(params)
+
+
+class SdwanInterface(Interface):
+    """Sdwan interface
+
+    Args:
+        comment (str): The interface's comment
+        interface (str): Interfaces in the bundle
+
+    """
+
+    def _setup(self):
+        # xpaths
+        self._xpaths.add_profile(value="/network/interface/sdwan/units")
+        self._xpaths.add_profile(
+            value="{0}/network/interface/sdwan/units".format(
+                self._TEMPLATE_DEVICE_XPATH
+            ),
+            parents=("Template", "TemplateStack"),
+        )
+
+        # xpath imports
+        self._xpath_imports.add_profile(value="/network/interface")
+
+        # params
+        params = []
+
+        params.append(VersionedParamPath("comment", path="comment"))
+        params.append(VersionedParamPath("interface", path="interface", vartype="member"))
 
         self._params = tuple(params)
 
@@ -3618,6 +3700,111 @@ class ManagementProfile(VersionedPanObject):
             VersionedParamPath("permitted-ip", path="permitted-ip", vartype="entry")
         )
 
+        self._params = tuple(params)
+
+
+class SdwanProfile(VersionedPanObject):
+    """Interface sdwan profile.
+
+    Add to any of the following interfaces:
+
+    * Layer3Subinterface
+    * EthernetInterface
+    * AggregateInterface
+    * VlanInterface
+
+    Args:
+        link_tag (str): Link Tag
+        comment (str): Interface comment
+        link-type (str): Link Type 
+        maximum_download (int):
+        maximum_upload (int)
+        error-correction (bool):
+        vpn-data-tunnel-support (bool):
+        vpn_failover_metric (int): failover metric
+        path_monitoring (str): aggressive or relaxed
+        probe_frequency (int):
+        probe_idle_time (int):
+        failback_hold_time (int):
+    """
+
+    ROOT = Root.VSYS
+    SUFFIX = ENTRY
+
+    def _setup(self):
+        # xpaths
+        self._xpaths.add_profile(value="/sdwan-interface-profile")
+        self._xpaths.add_profile(
+            value="{0}/sdwan-interface-profile".format(self._TEMPLATE_VSYS_XPATH),
+            parents=("Template", "TemplateStack"),
+        )
+
+        # params
+        params = []
+
+        yesnos = (
+            "error-correction",
+            "vpn-data-tunnel",
+        )
+        for yn in yesnos:
+            params.append(VersionedParamPath(yn, path=yn, vartype="yesno"))
+
+        params.append(
+            VersionedParamPath("comment", path="comment")
+        )
+
+        params.append(
+            VersionedParamPath(
+                "link_type",
+                default="Ethernet",
+                path="link-type",
+                values=[
+                    "ADSL/DSL", 
+                    "Cablemodem", 
+                    "Ethernet", 
+                    "Fiber", 
+                    "LTE/3G/4G/5G",
+                    "MPLS",
+                    "Microwave/Radio",
+                    "Satellite",
+                    "WiFi",
+                    "Other",
+                ]    
+            )
+        )
+
+        params.append(
+            VersionedParamPath("failback_hold_time", path="failback-hold-time")
+        )
+
+        params.append(
+            VersionedParamPath("link_tag", path="link-tag")
+        )
+        
+        params.append(
+            VersionedParamPath("maximum_download", path="maximum-download")
+        )
+
+        params.append(
+            VersionedParamPath("maximum_upload", path="maximum-upload")
+        )
+
+        params.append(
+            VersionedParamPath("path_monitoring", path="path-monitoring")
+        )
+
+        params.append(
+            VersionedParamPath("probe_frequency", path="probe-frequency")
+        )
+
+        params.append(
+            VersionedParamPath("probe_idle_time", path="probe-idle-time")
+        )
+
+        params.append(
+            VersionedParamPath("vpn_failover_metric", path="vpn-failover-metric")
+
+        )
         self._params = tuple(params)
 
 

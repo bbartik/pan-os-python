@@ -132,6 +132,7 @@ class Vsys(VersionedPanObject):
         "network.AggregateInterface",
         "network.LoopbackInterface",
         "network.TunnelInterface",
+        "network.SdwanInterface",
         "network.VlanInterface",
         "network.Vlan",
         "network.VirtualRouter",

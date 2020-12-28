@@ -1,3 +1,8 @@
+# local
+.vscode
+.venv
+bbtest.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -79,3 +84,4 @@ docs/_diagrams
 
 # vim swap files
 *.swp
+.vscode/settings.json
